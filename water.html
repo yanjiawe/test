@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+   <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title style="text-align: center;">水质监测数据表</title>
+    <style>
+        h2 {
+            text-align: center;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        input[type="date"] {
+            padding: 7px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: center;
+        }
+        th {
+            background-color: #4CAF50;
+            color: white;
+            position: sticky;
+            top: 0;
+        }
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        tr:hover {
+            background-color: #e9e9e9;
+        }
+        .unit {
+            font-size: 0.8em;
+            color: #888;
+        }
+        .status {
+            margin-top: 10px;
+            text-align: center;
+            font-style: italic;
+            color: #666;
+        }
+        .error {
+            color: #d9534f;
+            text-align: center;
+            margin-top: 20px;
+        }
+        .loading {
+            text-align: center;
+            margin-top: 20px;
+            color: #337ab7;
+        }
+    </style>
+</head>
+<body>
+  <h2>水质监测数据表</h2>
+  <div class="controls">
+    
+    <button id="prev-month">上个月</button>
+    <button id="prev-day">前一天</button>
+    <input type="date" id="datePicker" value="2020-05-09">
+    <button id="next-day">后一天</button>
+    <button id="next-month">下个月</button>
+  </div>
+  <select id="provinceFilter">
+  <option value="全部">全部省份</option>
+  
+  </select>
+  <div id="tableContainer">加载中...</div>
+  
+
+  <script>
+     const waterQualityRank = {
+            'Ⅰ': 1,
+            'Ⅱ': 2,
+            'Ⅲ': 3,
+            'Ⅳ': 4,
+            'Ⅴ': 5,
+            '劣Ⅰ': 1.5,
+            '劣Ⅱ': 2.5,
+            '劣Ⅲ': 3.5,
+            '劣Ⅳ': 4.5,
+            '劣Ⅴ': 5.5
+        };
+
+        // 当前排序状态
+        let currentSortDirection = null;
+
+    function initProvinceFilter() {
+    // 直辖市在前，其他按拼音排序
+    const provinces = [
+      "北京市", "天津市", "上海市", "重庆市",
+      "安徽省", "福建省", "甘肃省", "广东省", "广西壮族自治区", "贵州省",
+      "海南省", "河北省", "河南省", "黑龙江省", "湖北省", "湖南省",
+      "吉林省", "江苏省", "江西省", "辽宁省", "内蒙古自治区", "宁夏回族自治区",
+      "青海省", "山东省", "山西省", "陕西省", "四川省", "西藏自治区",
+      "新疆维吾尔自治区", "云南省", "浙江省",
+      "香港特别行政区", "澳门特别行政区", "台湾省"
+    ];
+
+    const select = document.getElementById('provinceFilter');
+    
+    // 保留"全部"选项，清空其他选项
+    while (select.options.length > 1) {
+      select.remove(1);
+    }
+
+    // 动态添加省份选项
+    provinces.forEach(province => {
+      const option = new Option(province, province);
+      select.add(option);
+    });
+  }
+
+   function getQualityRank(quality) {
+            return waterQualityRank[quality] || 99; // 未知类别排在最后
+        }
+
+        // 排序函数
+        function sortByWaterQuality(data, ascending = true) {
+            const tbodyCopy = [...data.tbody];
+            
+            tbodyCopy.sort((a, b) => {
+                const qualityA = a[4] || ''; // 第5列是水质类别
+                const qualityB = b[4] || '';
+                
+                const rankA = getQualityRank(qualityA);
+                const rankB = getQualityRank(qualityB);
+                
+                return ascending ? rankA - rankB : rankB - rankA;
+            });
+            
+            return {
+                ...data,
+                tbody: tbodyCopy
+            };
+        }
+    // 格式化表格数据
+
+
+    function formatTable(data) {
+      const thead = data.thead;
+      const tbody = data.tbody;
+       const qualityHeaderIndex = thead.indexOf("水质类别");
+            if (qualityHeaderIndex !== -1) {
+                thead[qualityHeaderIndex] = `
+                    水质类别 
+                    <button class="sort-btn ${currentSortDirection === 'asc' ? 'active' : ''}" data-sort="asc">↑</button>
+                    <button class="sort-btn ${currentSortDirection === 'desc' ? 'active' : ''}" data-sort="desc">↓</button>
+                `;
+            }
+
+      let html = '<table><thead><tr>';
+      for (const th of thead) {
+        html += `<th>${th}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+      for (const row of tbody) {
+        html += '<tr>';
+        for (const cell of row) {
+          html += `<td>${cell}</td>`;
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      return html;
+    }
+
+    // 加载数据函数
+    async function loadData() {
+      const date = document.getElementById('datePicker').value;
+      const url = `水质数据/${date.slice(0, 7)}/${date}.json`;
+
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('加载失败');
+        const json = await response.json();
+        document.getElementById('tableContainer').innerHTML = formatTable(json);
+      } catch (err) {
+        document.getElementById('tableContainer').innerHTML = `<p style="color:red">❌ 加载数据失败：${err.message}</p>`;
+      }
+    }
+
+async function loadData() {
+  const date = document.getElementById('datePicker').value;
+  const province = document.getElementById('provinceFilter').value; // 获取选择的省份
+  const url = `水质数据/${date.slice(0, 7)}/${date}.json`;
+
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('加载失败');
+    const originalData = await response.json();
+
+        // 使用 let 声明可变变量
+        let processedData = {
+            ...originalData,
+            tbody: originalData.tbody.filter(row => 
+                province === "全部" || row[0] === province
+            )
+        };
+
+        // 应用当前排序（如果有）
+        if (currentSortDirection) {
+            processedData = sortByWaterQuality(processedData, currentSortDirection === 'asc');
+        }
+
+        document.getElementById('tableContainer').innerHTML = formatTable(processedData);
+        
+        // 添加排序按钮事件监听
+        setTimeout(() => {
+            document.querySelectorAll('.sort-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    currentSortDirection = this.getAttribute('data-sort');
+                    loadData(); // 重新加载数据会保持排序状态
+                });
+            });
+        }, 0);
+        
+    } catch (err) {
+        document.getElementById('tableContainer').innerHTML = 
+            `<p style="color:red">❌ 加载数据失败：${err.message}</p>`;
+        console.error(err);
+    }
+}
+
+   
+
+    function getCurrentDate() {
+      return new Date(document.getElementById('datePicker').value);
+    }
+
+    // 更新日期并加载数据
+    function updateDate(newDate) {
+      const formattedDate = newDate.toISOString().split('T')[0]; // YYYY-MM-DD 格式
+      document.getElementById('datePicker').value = formattedDate;
+      loadData();
+    }
+
+     window.addEventListener('DOMContentLoaded', () => {
+    initProvinceFilter();
+    loadData(); // 初始加载数据
+  });
+
+    // 上个月按钮事件
+    document.getElementById('prev-month').addEventListener('click', () => {
+      const currentDate = getCurrentDate();
+      currentDate.setMonth(currentDate.getMonth() - 1);  // 减去一个月
+      updateDate(currentDate);
+    });
+
+    // 前一天按钮事件
+    document.getElementById('prev-day').addEventListener('click', () => {
+      const currentDate = getCurrentDate();
+      currentDate.setDate(currentDate.getDate() - 1);  // 减去一天
+      updateDate(currentDate);
+    });
+
+    // 后一天按钮事件
+    document.getElementById('next-day').addEventListener('click', () => {
+      const currentDate = getCurrentDate();
+      currentDate.setDate(currentDate.getDate() + 1);  // 加一天
+      updateDate(currentDate);
+    });
+
+    // 下个月按钮事件
+    document.getElementById('next-month').addEventListener('click', () => {
+      const currentDate = getCurrentDate();
+      currentDate.setMonth(currentDate.getMonth() + 1);  // 加一个月
+      updateDate(currentDate);
+    });
+
+    // 当日期选择变化时自动加载数据
+    document.getElementById('datePicker').addEventListener('change', loadData);
+
+    document.getElementById('provinceFilter').addEventListener('change', loadData);
+    // 页面加载时初始化
+    window.onload = loadData;
+  </script>
+</body>
+</html>
